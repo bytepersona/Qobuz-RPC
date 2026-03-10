@@ -90,3 +90,4 @@ If you encounter any problem with the program, please feel free to open a GitHub
 * Implement proper time remaining/elapsed counter (Requires a robust way to determine track duration/progress).
 * Refine the album art caching logic.
 * Explore support for other operating systems (macOS/Linux via different window tracking methods).
+* Change Playing to Listening through Discord.
