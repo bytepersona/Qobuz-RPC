@@ -10,6 +10,9 @@ This project provides a graphical interface and continuous development on the fo
 
 * **GUI Application:** Easy-to-use graphical interface for simple control.
 * **Automatic Status:** Synchronizes your Discord status with the currently playing track on Qobuz.
+* **"Listening to" Status:** Shows up on Discord as *Listening to …* (like Spotify) instead of *Playing …*. The name after "Listening to" is the name of the Discord application behind the Client ID (set in the Discord Developer Portal).
+* **Progress Bar:** Displays elapsed/remaining time when the track duration is known; pausing and resuming continues from where the track was paused.
+* **Auto Reconnect:** Reconnects automatically when Discord is restarted.
 * **Dynamic Album Art:** Fetches album artwork from the iTunes public API for a richer presence display.
 * **Built-in Update Check:** Notifies you when a new version is available directly within the application.
 * **Windows Only:** Designed specifically to integrate with the Qobuz Windows desktop client.
@@ -67,10 +70,23 @@ If you wish to run the script directly from Python source code, you must manuall
 
 ### Required Python Packages
 
-pip install pypresence psutil pywin32 requests packaging
+```
+pip install -r requirements.txt
+```
+
+`pypresence` **4.5 or newer** is required for the "Listening to" status.
 
 ### Running the Script
-python qobuz_rpc_gui.py
+
+```
+python qobuz.py        # Windows (window title detection)
+python macOS.py        # macOS (AppleScript)
+python longserver.py   # Windows + local HTTP server on 127.0.0.1:5000
+```
+
+Shared code (Discord presence, album art, GUI, update check) lives in `qobuz_common.py`; it must sit next to the scripts and is bundled automatically by Nuitka.
+
+`longserver.py` accepts `POST /update` with a JSON body `{"title": "Song Title - Artist Name"}` (an empty title clears the status) and `POST /shutdown`. Requests must use `Content-Type: application/json`; requests from websites (any `Origin` other than a browser extension) are rejected.
 
 ## 💖 Credits and Original Work
 
@@ -87,7 +103,6 @@ If you encounter any problem with the program, please feel free to open a GitHub
 
 ## ✅ Future TODO
 
-* Implement proper time remaining/elapsed counter (Requires a robust way to determine track duration/progress).
+* Detect seeking within a track (the progress bar assumes playback from the start or from the pause position).
 * Refine the album art caching logic.
 * Explore support for other operating systems (macOS/Linux via different window tracking methods).
-* Change Playing to Listening through Discord.
