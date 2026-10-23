@@ -12,6 +12,7 @@ This project provides a graphical interface and continuous development on the fo
 * **Automatic Status:** Synchronizes your Discord status with the currently playing track on Qobuz.
 * **"Listening to" Status:** Shows up on Discord as *Listening to …* (like Spotify) instead of *Playing …*. The name after "Listening to" is the name of the Discord application behind the Client ID (set in the Discord Developer Portal).
 * **Progress Bar:** Displays elapsed/remaining time when the track duration is known; pausing and resuming continues from where the track was paused.
+* **Sound Quality:** Shows your Qobuz streaming quality (e.g. *Hi-Res 24-Bit / 192 kHz*) as the third line on Discord. Pick it in the app to match your Qobuz setting; Qobuz does not expose the actual per-track quality, so this is the selected setting, not a detected value. Choose *Hidden* to show "Song - Artist" instead. The choice is saved in `settings.json` (`%APPDATA%\Qobuz-RPC` on Windows, `~/Library/Application Support/Qobuz-RPC` on macOS).
 * **Auto Reconnect:** Reconnects automatically when Discord is restarted.
 * **Dynamic Album Art:** Fetches album artwork from the iTunes public API for a richer presence display.
 * **Built-in Update Check:** Notifies you when a new version is available directly within the application.

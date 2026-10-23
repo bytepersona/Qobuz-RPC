@@ -4,7 +4,10 @@ The platform scripts (qobuz.py, macOS.py, longserver.py) only implement how the
 currently playing track is detected; everything else lives here.
 """
 
+import json
+import os
 import queue
+import sys
 import threading
 import time
 import tkinter as tk
@@ -37,9 +40,52 @@ RECONNECT_INTERVAL = 15.0  # seconds between Discord reconnect attempts
 # Sentinel returned by poll() while Qobuz is open but nothing is playing
 IDLE = "<idle>"
 
+# Streaming quality shown on Discord; Qobuz does not expose the actual playback quality,
+# so the user picks their Qobuz setting. "Hidden" shows "Song - Artist" instead.
+QUALITY_HIDDEN = "Hidden"
+QUALITY_OPTIONS = ["MP3 320 kbps", "CD 16-Bit / 44.1 kHz", "Hi-Res 24-Bit / 96 kHz",
+                   "Hi-Res 24-Bit / 192 kHz", QUALITY_HIDDEN]
+DEFAULT_SETTINGS = {"quality": "CD 16-Bit / 44.1 kHz"}
+
 
 def make_headers(version, platform):
     return {'User-Agent': f'Qobuz-RPC-Sync/{version} ({platform})'}
+
+
+# --- 0. SETTINGS ---
+
+def settings_path():
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    elif sys.platform == "darwin":
+        base = os.path.expanduser("~/Library/Application Support")
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(base, "Qobuz-RPC", "settings.json")
+
+
+def load_settings(path=None):
+    settings = dict(DEFAULT_SETTINGS)
+    try:
+        with open(path or settings_path(), encoding="utf-8") as f:
+            stored = json.load(f)
+        if isinstance(stored, dict):
+            settings.update(stored)
+    except (OSError, ValueError):
+        pass  # missing or broken file: use defaults
+    if settings["quality"] not in QUALITY_OPTIONS:
+        settings["quality"] = DEFAULT_SETTINGS["quality"]
+    return settings
+
+
+def save_settings(settings, path=None):
+    path = path or settings_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2)
+    except OSError as e:
+        print(f"Could not save settings: {e}")
 
 
 # --- 1. UPDATE LOGIC ---
@@ -158,7 +204,7 @@ class PresenceController:
         rpc.connect()
         self._rpc = rpc
 
-    def show(self, song, artist, art_url=None, duration_ms=None):
+    def show(self, song, artist, art_url=None, duration_ms=None, quality=None):
         track = (song, artist)
         now = time.time()
         if track == self._track and self._started_at:
@@ -175,7 +221,7 @@ class PresenceController:
             "details": _fit(song),
             "state": _fit(f"by {artist_text}"),
             "large_image": art_url or "qobuz",
-            "large_text": _fit(f"{song} - {artist_text}"),
+            "large_text": _fit(quality or f"{song} - {artist_text}"),
             "small_image": "qobuz_icon",
             "small_text": "Qobuz Player",
             "start": int(start),
@@ -244,6 +290,11 @@ class BaseSynchronizer(threading.Thread):
     def wake(self):
         self._wake.set()
 
+    def refresh(self):
+        """Re-sends the current state, e.g. after the quality setting changed."""
+        self._needs_refresh = True
+        self.wake()
+
     def _wait(self, seconds):
         self._wake.wait(seconds)
         self._wake.clear()
@@ -309,7 +360,9 @@ class BaseSynchronizer(threading.Thread):
         if not self.artwork.is_cached(song, artist):
             self.app.set_status(f"Searching art for '{song}'...")
         art_url, duration_ms = self.artwork.lookup(song, artist)
-        self.presence.show(song, artist, art_url, duration_ms)
+        quality = self.app.quality
+        self.presence.show(song, artist, art_url, duration_ms,
+                           quality=None if quality == QUALITY_HIDDEN else quality)
         self.app.set_status(f"Listening: {song}", "ok")
 
 
@@ -327,9 +380,11 @@ class QobuzRPCApp:
         self.http_headers = make_headers(version, platform)
         self.rpc_thread = None
         self._events = queue.Queue()
+        self.settings = load_settings()
+        self.quality = self.settings["quality"]
 
         master.title(f"Qobuz Discord RPC (v{version})")
-        master.geometry("550x450")
+        master.geometry("550x500")
         master.resizable(False, False)
         master.configure(bg=self.BG)
         master.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -347,6 +402,21 @@ class QobuzRPCApp:
         label("Discord Requirement:", fg='#FFFFFF', pady=(5, 0))
         label("Must enable 'Display current activity as a status message' in Discord's "
               "User Settings > Activity Privacy.", font=('Inter', 9), wraplength=500, justify=tk.CENTER)
+
+        quality_frame = tk.Frame(frame, bg=self.BG)
+        quality_frame.pack(pady=(15, 0))
+        tk.Label(quality_frame, text="Sound Quality:", bg=self.BG, fg='#FFFFFF',
+                 font=self.FONT_MAIN).pack(side=tk.LEFT, padx=(0, 10))
+        self.quality_var = tk.StringVar(value=self.quality)
+        quality_menu = tk.OptionMenu(quality_frame, self.quality_var, *QUALITY_OPTIONS,
+                                     command=self._on_quality_change)
+        quality_menu.config(bg='#40444B', fg='#FFFFFF', activebackground='#5865F2',
+                            activeforeground='#FFFFFF', relief='flat', highlightthickness=0,
+                            font=self.FONT_MAIN, width=22, cursor="hand2")
+        quality_menu["menu"].config(bg='#40444B', fg='#FFFFFF', activebackground='#5865F2',
+                                    activeforeground='#FFFFFF')
+        quality_menu.pack(side=tk.LEFT)
+
         label("Current Status:", fg='#FFFFFF', pady=(20, 5))
 
         self.status_var = tk.StringVar(value="Ready to Start")
@@ -379,6 +449,13 @@ class QobuzRPCApp:
                            activeforeground='#FFFFFF', state=state, cursor="hand2")
         button.pack(side=tk.LEFT, padx=15)
         return button
+
+    def _on_quality_change(self, quality):
+        self.quality = quality
+        self.settings["quality"] = quality
+        save_settings(self.settings)
+        if self.rpc_thread:
+            self.rpc_thread.refresh()
 
     # --- Thread-safe bridge: worker threads queue GUI work, the Tk thread runs it ---
 
